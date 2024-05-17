@@ -78,7 +78,7 @@ export PATH
 #
 # ——————————————————————————————————————————————————————————————————————————————————
 #
-DATE_VERSION="v1.6.0-2024_04_27_19_23"
+DATE_VERSION="v1.6.1-2024_04_30_21_03"
 #
 # ——————————————————————————————————————————————————————————————————————————————————
 
@@ -570,8 +570,6 @@ function data_crep() { # container_run_extra_parameters
 
 function install_xiaoya_alist() {
 
-    get_config_dir
-
     if [ ! -d "${CONFIG_DIR}" ]; then
         mkdir -p "${CONFIG_DIR}"
     else
@@ -661,8 +659,10 @@ function install_xiaoya_alist() {
     fi
     INFO "本地IP：${localip}"
 
-    INFO "是否使用host网络模式 [Y/n]（默认 n 不使用）"
-    read -erp "NET_MODE:" NET_MODE
+    if [ "${SET_NET_MODE}" == true ]; then
+        INFO "是否使用host网络模式 [Y/n]（默认 n 不使用）"
+        read -erp "NET_MODE:" NET_MODE
+    fi
     [[ -z "${NET_MODE}" ]] && NET_MODE="n"
     if [[ ${NET_MODE} == [Yy] ]]; then
         if [ ! -s "${CONFIG_DIR}"/docker_address.txt ]; then
@@ -759,7 +759,7 @@ function uninstall_xiaoya_alist() {
         echo -en "即将开始卸载小雅Alist${Blue} $i ${Font}\r"
         sleep 1
     done
-    IMAGE_NAME="$(docker inspect --format='{{.Config.Image}}' ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
+    IMAGE_NAME="$(docker inspect --format='{{.Config.Image}}' "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_emby_name.txt)")"
     docker stop "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
     docker rm "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
     docker rmi "${IMAGE_NAME}"
@@ -813,6 +813,8 @@ function install_xiaoya_alist_sync_data() {
 
     if [ ! -f ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt ]; then
         get_config_dir
+    else
+        CONFIG_DIR="$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)"
     fi
 
     while true; do
@@ -826,12 +828,12 @@ function install_xiaoya_alist_sync_data() {
         fi
     done
 
-    bash -c "$(curl --insecure -fsSL https://ddsrem.com/xiaoya/xiaoya_data_downloader.sh)" -s "$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)"
+    bash -c "$(curl --insecure -fsSL https://ddsrem.com/xiaoya/xiaoya_data_downloader.sh)" -s "${CONFIG_DIR}"
 
     # 组合定时任务命令
     CRON="0 */${sync_interval} * * *   bash -c \"\$(curl --insecure -fsSL https://ddsrem.com/xiaoya/xiaoya_data_downloader.sh)\" -s \
-$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt) >> \
-$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)/data/cron.log 2>&1"
+${CONFIG_DIR} >> \
+${CONFIG_DIR}/data/cron.log 2>&1"
     if command -v crontab > /dev/null 2>&1; then
         crontab -l | grep -v xiaoya_data_downloader > /tmp/cronjob.tmp
         echo -e "${CRON}" >> /tmp/cronjob.tmp
@@ -849,14 +851,60 @@ $(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)/data/cron.log 2>&1"
         INFO "${CRON}"
     fi
 
-    if curl --insecure -fsSL http://172.17.0.1:5678/data/version.txt; then
-        echo "http://172.17.0.1:5678/data" > "$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)"/download_url.txt
-    elif curl --insecure -fsSL http://127.0.0.1:5678/data/version.txt; then
-        echo "http://127.0.0.1:5678/data" > "$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)"/download_url.txt
-    elif curl --insecure -fsSL http://127.0.0.1/data/version.txt; then
-        echo "http://127.0.0.1/data" > "$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)"/download_url.txt
+    local net_mode
+    net_mode="$(docker inspect --format='{{range $m, $conf := .NetworkSettings.Networks}}{{$m}}{{end}}' "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)")"
+    if [ "$net_mode"x = "bridge"x ]; then
+        echo "http://127.0.0.1:81/data" > "${CONFIG_DIR}"/download_url.txt
+    elif [ "$net_mode"x = "host"x ]; then
+        echo "http://127.0.0.1:5233/data" > "${CONFIG_DIR}"/download_url.txt
     else
-        WARN "程序自动编辑download_url.txt失败，请自行编辑${data_dir}/download_url.txt文件！"
+        WARN "程序自动编辑download_url.txt失败，请自行编辑 ${CONFIG_DIR}/download_url.txt 文件！"
+    fi
+
+    if docker inspect xiaoyaliu/alist:latest > /dev/null 2>&1; then
+        if docker inspect xiaoyaliu/alist:latest > /dev/null 2>&1; then
+            local_sha=$(docker inspect --format='{{index .RepoDigests 0}}' xiaoyaliu/alist:latest | cut -f2 -d:)
+            remote_sha=$(curl -s "https://hub.docker.com/v2/repositories/xiaoyaliu/alist/tags/latest" | grep -o '"digest":"[^"]*' | grep -o '[^"]*$' | tail -n1 | cut -f2 -d:)
+            INFO "remote_sha: ${remote_sha}"
+            INFO "local_sha: ${local_sha}"
+            if [ ! "${local_sha}" == "${remote_sha}" ] && [ -n "${remote_sha}" ] && [ -n "${local_sha}" ]; then
+                INFO "程序将更新小雅容器！"
+                IMAGE_NAME="$(docker inspect --format='{{.Config.Image}}' "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)")"
+                docker stop "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
+                docker rm "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
+                docker rmi "${IMAGE_NAME}"
+                SET_NET_MODE=false
+                NET_MODE=n
+                install_xiaoya_alist
+            else
+                INFO "跳过小雅容器更新"
+                INFO "重启小雅容器使配置生效！"
+                docker restart "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
+                wait_xiaoya_start
+            fi
+        fi
+    elif docker inspect xiaoyaliu/alist:hostmode > /dev/null 2>&1; then
+        if docker inspect xiaoyaliu/alist:hostmode > /dev/null 2>&1; then
+            local_sha=$(docker inspect --format='{{index .RepoDigests 0}}' xiaoyaliu/alist:hostmode | cut -f2 -d:)
+            remote_sha=$(curl -s "https://hub.docker.com/v2/repositories/xiaoyaliu/alist/tags/hostmode" | grep -o '"digest":"[^"]*' | grep -o '[^"]*$' | tail -n1 | cut -f2 -d:)
+            INFO "remote_sha: ${remote_sha}"
+            INFO "local_sha: ${local_sha}"
+            if [ ! "${local_sha}" == "${remote_sha}" ] && [ -n "${remote_sha}" ] && [ -n "${local_sha}" ]; then
+                INFO "程序将更新小雅容器！"
+                IMAGE_NAME="$(docker inspect --format='{{.Config.Image}}' "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)")"
+                docker stop "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
+                docker rm "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
+                docker rmi "${IMAGE_NAME}"
+                SET_NET_MODE=false
+                NET_MODE=y
+                install_xiaoya_alist
+            else
+                INFO "跳过小雅容器更新"
+                INFO "重启小雅容器使配置生效！"
+                docker restart "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_alist_name.txt)"
+                wait_xiaoya_start
+            fi
+        fi
     fi
 
     INFO "设置完成！"
@@ -890,6 +938,8 @@ function main_xiaoya_alist() {
     case "$num" in
     1)
         clear
+        get_config_dir
+        SET_NET_MODE=true
         install_xiaoya_alist
         ;;
     2)
@@ -905,7 +955,7 @@ function main_xiaoya_alist() {
         if command -v crontab > /dev/null 2>&1; then
             if crontab -l | grep xiaoya_data_downloader > /dev/null 2>&1; then
                 for i in $(seq -w 3 -1 0); do
-                    echo -en "即将删除Emby config同步定时任务${Blue} $i ${Font}\r"
+                    echo -en "即将删除同步定时任务${Blue} $i ${Font}\r"
                     sleep 1
                 done
                 uninstall_xiaoya_alist_sync_data
@@ -917,7 +967,7 @@ function main_xiaoya_alist() {
         elif [ -f /etc/synoinfo.conf ]; then
             if grep 'xiaoya_data_downloader' /etc/crontab > /dev/null 2>&1; then
                 for i in $(seq -w 3 -1 0); do
-                    echo -en "即将删除Emby config同步定时任务${Blue} $i ${Font}\r"
+                    echo -en "即将删除同步定时任务${Blue} $i ${Font}\r"
                     sleep 1
                 done
                 uninstall_xiaoya_alist_sync_data
@@ -2673,6 +2723,14 @@ function install_emby_xiaoya_all_emby() {
         exit 1
     fi
 
+    if [ -f "${MEDIA_DIR}/config/data/device.txt" ]; then
+        INFO "检测到存在 device.txt 文件！"
+        if grep -q "1999bfd1661041cd85ff5e260bc04c06" ${MEDIA_DIR}/config/data/device.txt; then
+            INFO "删除 device.txt 文件中..."
+            rm -f ${MEDIA_DIR}/config/data/device.txt
+        fi
+    fi
+
     XIAOYA_CONFIG_DIR=$(cat ${DDSREM_CONFIG_DIR}/xiaoya_alist_config_dir.txt)
     if [ -s "${XIAOYA_CONFIG_DIR}/emby_config.txt" ]; then
         source "${XIAOYA_CONFIG_DIR}/emby_config.txt"
@@ -2912,6 +2970,7 @@ function install_xiaoya_notify_cron() {
 
     if [ ! -f ${DDSREM_CONFIG_DIR}/resilio_config_dir.txt ]; then
         INFO "请输入Resilio-Sync配置文件目录"
+        WARN "注意：Resilio-Sync 并且必须安装，本次获取目录只用于存放日志文件！"
         read -erp "CONFIG_DIR:" CONFIG_DIR
         touch ${DDSREM_CONFIG_DIR}/resilio_config_dir.txt
         echo "${CONFIG_DIR}" > ${DDSREM_CONFIG_DIR}/resilio_config_dir.txt
@@ -3454,10 +3513,71 @@ function install_xiaoya_emd() {
             ERROR "输入错误，请重新输入。同步间隔时间必须为12以上的正整数。"
         fi
     done
-
     cycle=$((sync_interval * 60 * 60))
 
-    if docker pull ddsderek/xiaoya-emd:latest; then
+    INFO "是否开启重启容器自动更新到最新程序 [Y/n]（默认 n 不开启）"
+    WARN "需要拥有良好的上网环境才可以更新成功，要能访问 Github 和 Python PIP 库！"
+    read -erp "RESTART_AUTO_UPDATE:" RESTART_AUTO_UPDATE
+    [[ -z "${RESTART_AUTO_UPDATE}" ]] && TG="n"
+    if [[ ${RESTART_AUTO_UPDATE} == [Yy] ]]; then
+        RESTART_AUTO_UPDATE=true
+    else
+        RESTART_AUTO_UPDATE=false
+    fi
+
+    while true; do
+        INFO "请选择镜像版本 [ 1；latest | 2；beta ]（默认 1）"
+        read -erp "CHOOSE_IMAGE_VERSION:" CHOOSE_IMAGE_VERSION
+        [[ -z "${CHOOSE_IMAGE_VERSION}" ]] && CHOOSE_IMAGE_VERSION="1"
+        case ${CHOOSE_IMAGE_VERSION} in
+        1)
+            IMAGE_VERSION=latest
+            break
+            ;;
+        2)
+            IMAGE_VERSION=beta
+            break
+            ;;
+        *)
+            ERROR "输入无效，请重新选择"
+            ;;
+        esac
+    done
+
+    extra_parameters=
+    local RETURN_DATA
+    RETURN_DATA="$(data_crep "r" "install_xiaoya_emd")"
+    if [ "${RETURN_DATA}" == "None" ]; then
+        INFO "请输入运行参数（默认 --media /media ）"
+        WARN "如果需要更改此设置请注意容器目录映射，默认媒体库路径映射到容器内的 /media 文件夹下！"
+        read -erp "Extra parameters:" extra_parameters
+        [[ -z "${extra_parameters}" ]] && extra_parameters="--media /media"
+        data_crep "write" "install_xiaoya_emd"
+    else
+        INFO "已读取您上次设置的运行参数：${RETURN_DATA} (默认不更改回车继续，如果需要更改请输入新参数)"
+        read -erp "Extra parameters:" extra_parameters
+        [[ -z "${extra_parameters}" ]] && extra_parameters=${RETURN_DATA}
+    fi
+    script_extra_parameters="${extra_parameters}"
+
+    extra_parameters=
+    container_run_extra_parameters=$(cat ${DDSREM_CONFIG_DIR}/container_run_extra_parameters.txt)
+    if [ "${container_run_extra_parameters}" == "true" ]; then
+        local RETURN_DATA_2
+        RETURN_DATA_2="$(data_crep "r" "install_xiaoya_emd_2")"
+        if [ "${RETURN_DATA_2}" == "None" ]; then
+            INFO "请输入运行容器额外参数（默认 无 ）"
+            read -erp "Extra parameters:" extra_parameters
+            data_crep "w" "install_xiaoya_emd_2"
+        else
+            INFO "已读取您上次设置的运行容器额外参数：${RETURN_DATA_2} (默认不更改回车继续，如果需要更改请输入新参数)"
+            read -erp "Extra parameters:" extra_parameters
+            [[ -z "${extra_parameters}" ]] && extra_parameters=${RETURN_DATA_2}
+        fi
+    fi
+    run_extra_parameters="${extra_parameters}"
+
+    if docker pull ddsderek/xiaoya-emd:${IMAGE_VERSION}; then
         INFO "镜像拉取成功！"
     else
         ERROR "镜像拉取失败！"
@@ -3469,9 +3589,11 @@ function install_xiaoya_emd() {
         --restart=always \
         --net=host \
         -v "${MEDIA_DIR}/xiaoya:/media" \
-        -e CYCLE=${cycle} \
-        ddsderek/xiaoya-emd:latest \
-        --media /media
+        -e "CYCLE=${cycle}" \
+        -e "RESTART_AUTO_UPDATE=${RESTART_AUTO_UPDATE}" \
+        ${run_extra_parameters} \
+        ddsderek/xiaoya-emd:${IMAGE_VERSION} \
+        ${script_extra_parameters}
 
     INFO "安装完成！"
 
@@ -3548,7 +3670,7 @@ function uninstall_xiaoya_all_emby() {
         echo -en "即将开始卸载小雅Emby全家桶${Blue} $i ${Font}\r"
         sleep 1
     done
-    IMAGE_NAME="$(docker inspect --format='{{.Config.Image}}' ${DDSREM_CONFIG_DIR}/container_name/xiaoya_emby_name.txt)"
+    IMAGE_NAME="$(docker inspect --format='{{.Config.Image}}' "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_emby_name.txt)")"
     docker stop "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_emby_name.txt)"
     docker rm "$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_emby_name.txt)"
     docker rmi "${IMAGE_NAME}"
