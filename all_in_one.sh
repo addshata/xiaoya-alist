@@ -322,6 +322,7 @@ function return_menu() {
         clear
         "${@}"
     else
+        echo -e "\n"
         exit 0
     fi
 
@@ -367,6 +368,7 @@ function container_update() {
 
     docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
+        -e TZ=Asia/Shanghai \
         containrrr/watchtower:latest \
         --run-once \
         --cleanup \
@@ -999,6 +1001,7 @@ function pull_run_glue() {
             -v "${CONFIG_DIR}:/etc/xiaoya" \
             ${extra_parameters} \
             -e LANG=C.UTF-8 \
+            -e TZ=Asia/Shanghai \
             xiaoyaliu/glue:latest \
             "${@}"
     else
@@ -1009,6 +1012,7 @@ function pull_run_glue() {
             -v "${MEDIA_DIR}:/media" \
             -v "${CONFIG_DIR}:/etc/xiaoya" \
             -e LANG=C.UTF-8 \
+            -e TZ=Asia/Shanghai \
             xiaoyaliu/glue:latest \
             "${@}"
     fi
@@ -1036,6 +1040,7 @@ function pull_run_ddsderek_glue() {
             -v "${CONFIG_DIR}:/etc/xiaoya" \
             ${extra_parameters} \
             -e LANG=C.UTF-8 \
+            -e TZ=Asia/Shanghai \
             ddsderek/xiaoya-glue:latest \
             "${@}"
     else
@@ -1046,6 +1051,7 @@ function pull_run_ddsderek_glue() {
             -v "${MEDIA_DIR}:/media" \
             -v "${CONFIG_DIR}:/etc/xiaoya" \
             -e LANG=C.UTF-8 \
+            -e TZ=Asia/Shanghai \
             ddsderek/xiaoya-glue:latest \
             "${@}"
     fi
@@ -2171,6 +2177,7 @@ function install_emby_embyserver() {
             ${extra_parameters} \
             -e UID=0 \
             -e GID=0 \
+            -e TZ=Asia/Shanghai \
             --restart=always \
             "${image_name}:${IMAGE_VERSION}"
     else
@@ -2184,6 +2191,7 @@ function install_emby_embyserver() {
             --privileged=true \
             -e UID=0 \
             -e GID=0 \
+            -e TZ=Asia/Shanghai \
             --restart=always \
             "${image_name}:${IMAGE_VERSION}"
     fi
@@ -2218,6 +2226,7 @@ function install_amilys_embyserver() {
             ${extra_parameters} \
             -e UID=0 \
             -e GID=0 \
+            -e TZ=Asia/Shanghai \
             --restart=always \
             "${image_name}:${IMAGE_VERSION}"
     else
@@ -2230,6 +2239,7 @@ function install_amilys_embyserver() {
             ${NET_MODE} \
             -e UID=0 \
             -e GID=0 \
+            -e TZ=Asia/Shanghai \
             --restart=always \
             "${image_name}:${IMAGE_VERSION}"
     fi
@@ -2269,6 +2279,7 @@ function install_lovechen_embyserver() {
             ${extra_parameters} \
             -e UID=0 \
             -e GID=0 \
+            -e TZ=Asia/Shanghai \
             --restart=always \
             lovechen/embyserver:4.7.14.0
     else
@@ -2281,6 +2292,7 @@ function install_lovechen_embyserver() {
             ${NET_MODE} \
             -e UID=0 \
             -e GID=0 \
+            -e TZ=Asia/Shanghai \
             --restart=always \
             lovechen/embyserver:4.7.14.0
     fi
@@ -2639,6 +2651,7 @@ function install_jellyfin_xiaoya_all_jellyfin() {
             -p 7369:7359/udp \
             --privileged=true \
             --restart=always \
+            -e TZ=Asia/Shanghai \
             nyanmisaka/jellyfin:240220-amd64-legacy
         ;;
     "aarch64" | *"arm64"* | *"armv8"* | *"arm/v8"*)
@@ -2657,6 +2670,7 @@ function install_jellyfin_xiaoya_all_jellyfin() {
             -p 7369:7359/udp \
             --privileged=true \
             --restart=always \
+            -e TZ=Asia/Shanghai \
             nyanmisaka/jellyfin:240220-arm64
         ;;
     *)
@@ -3307,6 +3321,7 @@ function install_xiaoya_emd() {
         -v "${MEDIA_DIR}/xiaoya:/media" \
         -e "CYCLE=${cycle}" \
         -e "RESTART_AUTO_UPDATE=${RESTART_AUTO_UPDATE}" \
+        -e TZ=Asia/Shanghai \
         ${run_extra_parameters} \
         ddsderek/xiaoya-emd:${IMAGE_VERSION} \
         ${script_extra_parameters}
@@ -3828,6 +3843,7 @@ function install_xiaoya_alist_tvbox() {
             -p "${ALIST_PORT}":80 \
             -e ALIST_PORT="${ALIST_PORT}" \
             -e MEM_OPT="${MEM_OPT}" \
+            -e TZ=Asia/Shanghai \
             -v "${CONFIG_DIR}:/data" \
             ${extra_parameters} \
             --restart=always \
@@ -3839,6 +3855,7 @@ function install_xiaoya_alist_tvbox() {
             -p "${ALIST_PORT}":80 \
             -e ALIST_PORT="${ALIST_PORT}" \
             -e MEM_OPT="${MEM_OPT}" \
+            -e TZ=Asia/Shanghai \
             -v "${CONFIG_DIR}:/data" \
             --restart=always \
             --name="$(cat ${DDSREM_CONFIG_DIR}/container_name/xiaoya_tvbox_name.txt)" \
@@ -4315,7 +4332,7 @@ function main_docker_compose() {
 
     echo -e "——————————————————————————————————————————————————————————————————————————————————"
     echo -e "${Blue}Docker Compose 小雅及全家桶${Font}\n"
-    echo -e "${Sky_Blue}Docker Compose 安装方式由 https://github.com/monlor 更新维护，在此表示感谢！"
+    echo -e "${Sky_Blue}Docker Compose 安装方式由 https://link.monlor.com/ 更新维护，在此表示感谢！"
     echo -e "具体详细介绍请看项目README：https://github.com/monlor/docker-xiaoya${Font}\n"
     echo -e "1、安装"
     echo -e "2、卸载"
