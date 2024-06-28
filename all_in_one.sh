@@ -3,6 +3,7 @@
 # shellcheck disable=SC2086
 # shellcheck disable=SC1091
 # shellcheck disable=SC2154
+# shellcheck disable=SC2004
 PATH=${PATH}:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
 export PATH
 #
@@ -22,7 +23,7 @@ export PATH
 #
 # ——————————————————————————————————————————————————————————————————————————————————
 #
-DATE_VERSION="v1.6.3-2024_06_01_22_47"
+DATE_VERSION="v1.6.6-2024_06_22_17_34"
 #
 # ——————————————————————————————————————————————————————————————————————————————————
 
@@ -44,6 +45,19 @@ function ERROR() {
 function WARN() {
     echo -e "${WARN} ${1}"
 }
+
+mirrors=(
+    "docker.io"
+    "registry-docker-hub-latest-9vqc.onrender.com"
+    "docker.fxxk.dedyn.io"
+    "docker.chenby.cn"
+    "dockerproxy.com"
+    "hub.uuuadc.top"
+    "docker.jsdelivr.fyi"
+    "docker.registry.cyou"
+    "dockerhub.anzu.vip"
+    "docker.luyao.dynv6.net"
+)
 
 function root_need() {
     if [[ $EUID -ne 0 ]]; then
@@ -191,6 +205,7 @@ function get_os() {
         OSNAME='macos'
         packages_need
         DDSREM_CONFIG_DIR=/etc/DDSRem
+        stty -icanon
     # 必须先判断的系统
     # 绿联NAS 基于 OpenWRT
     elif echo -e "${_os_all}" | grep -Eqi "UGREEN"; then
@@ -333,8 +348,15 @@ function docker_pull() {
     retries=0
     max_retries=3
 
+    IMAGE_MIRROR=$(cat "${DDSREM_CONFIG_DIR}/image_mirror.txt")
+
+    if docker inspect "${1}" > /dev/null 2>&1; then
+        INFO "发现旧 ${1} 镜像，删除中..."
+        docker rmi "${1}" > /dev/null 2>&1
+    fi
+
     while [ $retries -lt $max_retries ]; do
-        if docker pull "${1}"; then
+        if docker pull "${IMAGE_MIRROR}/${1}"; then
             INFO "${1} 镜像拉取成功！"
             break
         else
@@ -345,8 +367,13 @@ function docker_pull() {
 
     if [ $retries -eq $max_retries ]; then
         ERROR "镜像拉取失败，已达到最大重试次数！"
+        ERROR "请进入主菜单选择数字 ${Sky_Blue}9 6${Font} 进入 ${Sky_Blue}Docker镜像源选择${Font} 配置镜像源地址！"
         exit 1
     else
+        if [ "${IMAGE_MIRROR}" != "docker.io" ]; then
+            docker tag "${IMAGE_MIRROR}/${1}" "${1}" > /dev/null 2>&1
+            docker rmi "${IMAGE_MIRROR}/${1}" > /dev/null 2>&1
+        fi
         return 0
     fi
 
@@ -448,6 +475,38 @@ function wait_xiaoya_start() {
         fi
         sleep 3
     done
+
+}
+
+function check_quark_cookie() {
+
+    if [[ ! -f "${CONFIG_DIR}/quark_cookie.txt" ]] && [[ ! -s "${CONFIG_DIR}/quark_cookie.txt" ]]; then
+        return 1
+    fi
+    local cookie user_agent url headers response status state_url sign_daily_reward sign_daily_reward_mb
+    cookie=$(head -n1 "${CONFIG_DIR}/quark_cookie.txt")
+    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch"
+    url="https://drive-pc.quark.cn/1/clouddrive/config?pr=ucpro&fr=pc&uc_param_str="
+    headers="Cookie: $cookie; User-Agent: $user_agent; Referer: https://pan.quark.cn"
+    response=$(curl -s -D - -H "$headers" "$url")
+    status=$(echo "$response" | grep -i status | cut -f2 -d: | cut -f1 -d,)
+    if [ "$status" == "401" ]; then
+        ERROR "无效夸克 Cookie"
+        return 1
+    else
+        state_url="https://drive-m.quark.cn/1/clouddrive/capacity/growth/info?pr=ucpro&fr=pc&uc_param_str="
+        response=$(curl -s -H "$headers" "$state_url")
+        sign_daily_reward=$(echo "$response" | cut -f6 -d\{ | cut -f4 -d: | cut -f1 -d,)
+        sign_daily_reward_mb=$(echo "$sign_daily_reward 1024 1024" | awk '{printf "%.2f\n", $1 / ($2 * $3)}')
+        if [ $sign_daily_reward_mb ]; then
+            INFO "有效夸克 Cookie"
+            INFO "夸克签到获取 $sign_daily_reward_mb MB"
+            return 0
+        else
+            ERROR "请求失败，请检查 Cookie 或网络连接是否正确。"
+            return 1
+        fi
+    fi
 
 }
 
@@ -600,6 +659,23 @@ function install_xiaoya_alist() {
             INFO "输入你的 PikPak 账号密码"
             read -erp "PikPak_Password:" PikPak_Password
             echo -e "\"${PikPak_Username}\" \"${PikPak_Password}\"" > ${CONFIG_DIR}/pikpak.txt
+        fi
+    fi
+
+    if [ ! -f "${CONFIG_DIR}/quark_cookie.txt" ] || ! check_quark_cookie; then
+        INFO "是否配置 夸克 Cookie [Y/n]（默认 n 不配置）"
+        read -erp "Cookie:" choose_cookie
+        [[ -z "${choose_cookie}" ]] && choose_cookie="n"
+        if [[ ${choose_cookie} == [Yy] ]]; then
+            touch ${CONFIG_DIR}/quark_cookie.txt
+            while true; do
+                INFO "输入你的 夸克 Cookie"
+                read -erp "Cookie:" quark_cookie
+                echo -e "${quark_cookie}" > ${CONFIG_DIR}/quark_cookie.txt
+                if check_quark_cookie; then
+                    break
+                fi
+            done
         fi
     fi
 
@@ -3359,6 +3435,8 @@ function main_xiaoya_emd() {
 
     echo -e "——————————————————————————————————————————————————————————————————————————————————"
     echo -e "${Blue}小雅元数据定时爬虫${Font}\n"
+    echo -e "${Sky_Blue}小雅元数据定时爬虫由 https://github.com/Rik-F5 更新维护，在此表示感谢！"
+    echo -e "具体详细配置参数请看项目README：https://github.com/Rik-F5/xiaoya_db${Font}\n"
     echo -e "1、安装"
     echo -e "2、更新"
     echo -e "3、卸载"
@@ -3669,6 +3747,8 @@ function install_xiaoyahelper() {
     if [[ ${TG} == [Yy] ]]; then
         TG_CHOOSE="-tg"
     fi
+
+    docker_pull "library/alpine:3.18.2"
 
     XIAOYAHELPER_URL="https://xiaoyahelper.ddsrem.com/aliyun_clear.sh"
     if xiaoyahelper_install_check "${XIAOYAHELPER_URL}"; then
@@ -4375,6 +4455,151 @@ function main_docker_compose() {
 
 }
 
+function auto_choose_image_mirror() {
+
+    for i in "${!mirrors[@]}"; do
+        local output
+        output=$(
+            curl -s -o /dev/null -w '%{time_total}' --head --request GET "${mirrors[$i]}"
+            echo $? > /tmp/curl_exit_status_${i} &
+        )
+        status[$i]=$!
+        delays[$i]=$output
+    done
+    better_time=9999999999
+    for i in "${!mirrors[@]}"; do
+        local time_compare result
+        wait ${status[$i]}
+        result=$(cat /tmp/curl_exit_status_${i})
+        rm -f /tmp/curl_exit_status_${i}
+        if [ $result -eq 0 ]; then
+            if [ "${mirrors[$i]}" == "docker.io" ]; then
+                time_compare=$(awk -v n1="1" -v n2="$result" 'BEGIN {print (n1>n2)? "1":"0"}')
+                if [ $time_compare -eq 1 ]; then
+                    better_mirror=${mirrors[$i]}
+                    better_time=0
+                fi
+            else
+                time_compare=$(awk -v n1="$better_time" -v n2="$result" 'BEGIN {print (n1>n2)? "1":"0"}')
+                if [ $time_compare -eq 1 ]; then
+                    better_mirror=${mirrors[$i]}
+                    better_time=${delays[$i]}
+                fi
+            fi
+        fi
+    done
+    if [ -z "${better_mirror}" ]; then
+        return 1
+    else
+        echo -e "${better_mirror}" > ${DDSREM_CONFIG_DIR}/image_mirror.txt
+        if docker pull "${better_mirror}/library/hello-world:latest" &> /dev/null; then
+            docker rmi "${better_mirror}/library/hello-world:latest" &> /dev/null
+            return 0
+        else
+            return 1
+        fi
+    fi
+
+}
+
+function choose_image_mirror() {
+
+    local num
+    local current_mirror interface
+    current_mirror="$(cat "${DDSREM_CONFIG_DIR}/image_mirror.txt")"
+    declare -i s
+    local s=0
+    echo -e "——————————————————————————————————————————————————————————————————————————————————"
+    echo -e "${Blue}Docker镜像源选择\n${Font}"
+    echo -ne "${INFO} 界面加载中...${Font}\r"
+    interface="${Sky_Blue}绿色字体代表当前选中的镜像源"
+    interface="${interface}\n选择镜像源后会自动检测是否可连接，如果预选镜像源都无法使用请自定义镜像源${Font}\n"
+    local status=()
+    for i in "${!mirrors[@]}"; do
+        local output
+        output=$(
+            curl -s -o /dev/null -w '%{time_total}' --head --request GET "${mirrors[$i]}"
+            echo $? > /tmp/curl_exit_status_${i} &
+        )
+        status[$i]=$!
+        delays[$i]=$(printf "%.2f" $output)
+    done
+    for i in "${!mirrors[@]}"; do
+        wait ${status[$i]}
+        local result
+        result=$(cat /tmp/curl_exit_status_${i})
+        rm -f /tmp/curl_exit_status_${i}
+        local color=
+        local font=
+        if [[ "${mirrors[$i]}" == "${current_mirror}" ]]; then
+            color="${Green}"
+            font="${Font}"
+            s+=1
+        fi
+        if [ $result -eq 0 ]; then
+            interface="${interface}\n$((i + 1))、${color}${mirrors[$i]}${font} (${Green}可用${Font} ${Sky_Blue}延迟: ${delays[$i]}秒${Font})"
+        else
+            interface="${interface}\n$((i + 1))、${color}${mirrors[$i]}${font} (${Red}不可用${Font})"
+        fi
+        z=$((i + 2))
+    done
+    if user_delay=$(curl -s -o /dev/null -w '%{time_total}' --head --request GET "$(cat "${DDSREM_CONFIG_DIR}/image_mirror_user.txt")"); then
+        USER_TEST_STATUS="(${Green}可用${Font} ${Sky_Blue}延迟: ${user_delay}秒${Font})"
+    else
+        USER_TEST_STATUS="(${Red}不可用${Font})"
+    fi
+    if [ "${s}" == "1" ]; then
+        interface="${interface}\n${z}、自定义源：$(cat "${DDSREM_CONFIG_DIR}/image_mirror_user.txt") ${USER_TEST_STATUS}"
+    else
+        interface="${interface}\n${z}、${Green}自定义源：$(cat "${DDSREM_CONFIG_DIR}/image_mirror_user.txt")${Font} ${USER_TEST_STATUS}"
+    fi
+    echo -e "${interface}\n0、返回上级"
+    echo -e "——————————————————————————————————————————————————————————————————————————————————"
+    read -erp "请输入数字 [0-${z}]:" num
+    if [ "${num}" == "0" ]; then
+        clear
+        "${1}"
+    elif [ "${num}" == "${z}" ]; then
+        clear
+        INFO "请输入自定义源地址（当前自定义源地址为：$(cat "${DDSREM_CONFIG_DIR}/image_mirror_user.txt")，回车默认不修改）"
+        read -erp "custom_url:" custom_url
+        [[ -z "${custom_url}" ]] && custom_url=$(cat "${DDSREM_CONFIG_DIR}/image_mirror_user.txt")
+        echo "${custom_url}" > ${DDSREM_CONFIG_DIR}/image_mirror.txt
+        echo "${custom_url}" > ${DDSREM_CONFIG_DIR}/image_mirror_user.txt
+    else
+        for i in "${!mirrors[@]}"; do
+            if [[ "$((i + 1))" == "${num}" ]]; then
+                echo -e "${mirrors[$i]}" > ${DDSREM_CONFIG_DIR}/image_mirror.txt
+                break
+            fi
+        done
+    fi
+    clear
+    INFO "开始镜像源地址连通性测试..."
+    local retries=0
+    local max_retries=3
+    IMAGE_MIRROR=$(cat "${DDSREM_CONFIG_DIR}/image_mirror.txt")
+    while [ $retries -lt $max_retries ]; do
+        if docker pull "${IMAGE_MIRROR}/library/hello-world:latest"; then
+            INFO "地址连通性测试正常！"
+            break
+        else
+            WARN "地址连通性测试失败，正在进行第 $((retries + 1)) 次重试..."
+            retries=$((retries + 1))
+        fi
+    done
+    if [ $retries -eq $max_retries ]; then
+        ERROR "地址连通性测试失败，已达到最大重试次数，请选择镜像源或者自定义镜像源！"
+    else
+        docker rmi "${IMAGE_MIRROR}/library/hello-world:latest"
+    fi
+    INFO "按任意键返回 Docker镜像源选择 菜单"
+    read -rs -n 1 -p ""
+    clear
+    choose_image_mirror "${1}"
+
+}
+
 function init_container_name() {
 
     if [ ! -d ${DDSREM_CONFIG_DIR}/container_name ]; then
@@ -4579,9 +4804,10 @@ function main_advanced_configuration() {
     echo -e "3、重置脚本配置"
     echo -e "4、开启/关闭 磁盘容量检测                     当前状态：${_disk_capacity_detection}"
     echo -e "5、开启/关闭 小雅连通性检测                   当前状态：${_xiaoya_connectivity_detection}"
+    echo -e "6、Docker镜像源选择"
     echo -e "0、返回上级"
     echo -e "——————————————————————————————————————————————————————————————————————————————————"
-    read -erp "请输入数字 [0-5]:" num
+    read -erp "请输入数字 [0-6]:" num
     case "$num" in
     1)
         clear
@@ -4623,13 +4849,17 @@ function main_advanced_configuration() {
         clear
         main_advanced_configuration
         ;;
+    6)
+        clear
+        choose_image_mirror "main_advanced_configuration"
+        ;;
     0)
         clear
         main_return
         ;;
     *)
         clear
-        ERROR '请输入正确数字 [0-5]'
+        ERROR '请输入正确数字 [0-6]'
         main_advanced_configuration
         ;;
     esac
@@ -4684,19 +4914,27 @@ function main_other_tools() {
 
 function main_return() {
 
+    local out_tips
     cat /tmp/xiaoya_alist
-
-    echo -e "1、安装/更新/卸载 小雅Alist                   当前安装状态：$(judgment_container "${xiaoya_alist_name}")
+    echo -ne "${INFO} 主界面加载中...${Font}\r"
+    if ! curl -s -o /dev/null -w '%{time_total}' --head --request GET "$(cat "${DDSREM_CONFIG_DIR}/image_mirror.txt")" &> /dev/null; then
+        if auto_choose_image_mirror; then
+            out_tips="${Green}提示：已为您自动配置Docker镜像源地址为: $(cat "${DDSREM_CONFIG_DIR}/image_mirror.txt")${Font}\n"
+        else
+            out_tips="${Red}警告：当前环境无法访问Docker镜像仓库，请输入96进入Docker镜像源设置更改镜像源${Font}\n"
+        fi
+    fi
+    echo -e "${out_tips}1、安装/更新/卸载 小雅Alist                   当前安装状态：$(judgment_container "${xiaoya_alist_name}")
 2、安装/卸载 小雅Emby全家桶                   当前安装状态：$(judgment_container "${xiaoya_emby_name}")
 3、安装/卸载 小雅Jellyfin全家桶               当前安装状态：$(judgment_container "${xiaoya_jellyfin_name}")
 4、安装/更新/卸载 小雅助手（xiaoyahelper）    当前安装状态：$(judgment_container xiaoyakeeper)
 5、安装/更新/卸载 小雅Alist-TVBox             当前安装状态：$(judgment_container "${xiaoya_tvbox_name}")
-6、安装/更新/卸载 Onelist                     当前安装状态：$(judgment_container "${xiaoya_onelist_name}")"
-    echo -e "7、Docker Compose 安装/卸载 小雅及全家桶（实验性功能）"
-    echo -e "8、其他工具 | Script info: ${DATE_VERSION} OS: ${_os},${OSNAME},${is64bit}"
-    echo -e "9、高级配置 | Docker version: ${Blue}${DOCKER_VERSION}${Font} ${IP_CITY}"
-    echo -e "0、退出脚本 | Thanks: ${Sky_Blue}heiheigui,xiaoyaLiu,Harold,AI老G,monlor${Font}"
-    echo -e "——————————————————————————————————————————————————————————————————————————————————"
+6、安装/更新/卸载 Onelist                     当前安装状态：$(judgment_container "${xiaoya_onelist_name}")
+7、Docker Compose 安装/卸载 小雅及全家桶（实验性功能）
+8、其他工具 | Script info: ${DATE_VERSION} OS: ${_os},${OSNAME},${is64bit}
+9、高级配置 | Docker version: ${Blue}${DOCKER_VERSION}${Font} ${IP_CITY}
+0、退出脚本 | Thanks: ${Sky_Blue}heiheigui,xiaoyaLiu,Harold,AI老G,monlor,Rik${Font}
+——————————————————————————————————————————————————————————————————————————————————"
     read -erp "请输入数字 [0-9]:" num
     case "$num" in
     1)
@@ -4735,6 +4973,10 @@ function main_return() {
         clear
         main_advanced_configuration
         ;;
+    96)
+        clear
+        choose_image_mirror "main_return"
+        ;;
     0)
         clear
         exit 0
@@ -4748,6 +4990,10 @@ function main_return() {
 }
 
 function first_init() {
+
+    clear
+
+    INFO "初始化中，请稍等...."
 
     root_need
 
@@ -4791,6 +5037,15 @@ function first_init() {
 
     if [ ! -f ${DDSREM_CONFIG_DIR}/xiaoya_connectivity_detection.txt ]; then
         echo 'true' > ${DDSREM_CONFIG_DIR}/xiaoya_connectivity_detection.txt
+    fi
+
+    if [ ! -f "${DDSREM_CONFIG_DIR}/image_mirror.txt" ]; then
+        if ! auto_choose_image_mirror; then
+            echo 'docker.io' > ${DDSREM_CONFIG_DIR}/image_mirror.txt
+        fi
+    fi
+    if [ ! -f "${DDSREM_CONFIG_DIR}/image_mirror_user.txt" ]; then
+        touch ${DDSREM_CONFIG_DIR}/image_mirror_user.txt
     fi
 
     if [ -f ${DDSREM_CONFIG_DIR}/xiaoya_emby_url.txt ]; then
